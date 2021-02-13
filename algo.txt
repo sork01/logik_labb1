@@ -1,0 +1,27 @@
+givet en lista med påståenden (premisser) P, ett påstående (slutsats) S och ett bevis B,
+där ett bevis är en lista vars element antingen är tripplar på formen
+(radnr, påstående, motivering) eller en lista av element (box).
+
+element_list ::= [] | [ element | element_list ]
+element ::= (linenr, statement, motivation) | element_list
+proof ::= element_list
+
+att validera B:
+
+för varje påstående i P, notera att P är sant
+
+för varje rad i B (varje trippel oavsett djup):
+    om djupet är > 1, markera raden som stängd
+
+för varje rad i B:
+    om raden är öppen:
+        om motiveringen är premiss
+            kontrollera att påståendet är noterat som sant
+        om motiveringen är en regel tillhörande naturlig deduktion
+            kontrollera att eventuella boxhänvisningar innehåller par av start- och slutradnr
+             som tillhör samma box
+            kontrollera att samtliga radnr i samtliga hänvisade boxar är stängda
+            kontrollera att regeln tillämpats korrekt på eventuella hänvisade radnr samt
+             eventuella hänvisade boxar
+    annars
+        validera beviset B* som består av radens elementlista med premisserna P fast utan slutsats?

@@ -1,0 +1,587 @@
+\documentclass[a4paper,10.5pt]{article}
+\usepackage[margin=2.5cm]{geometry}
+\linespread{1}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[swedish]{babel}
+
+% \usepackage{fontspec}
+% \setmainfont{Linux Libertine O}
+
+\usepackage{listings}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{lmodern}
+\usepackage{pbox}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\renewcommand{\headrulewidth}{ 1.0pt }
+\renewcommand{\footrulewidth}{ 0.4pt }
+\fancyhead{} % clear all headers
+\fancyfoot{} % clear all footers
+
+% E:even page, O:odd page, L:left, C:center, R:right
+%\fancyhead[LE,RO]{\thepage}
+%\fancyfoot[C]{Albert Einstein, 2009}
+
+\fancyhead[L]{DD1350 HT15 Laboration 1}
+\fancyhead[R]{Mikael Forsberg, Robin Gunning}
+\fancyfoot[C]{\thepage}
+
+\lstset{
+    basicstyle=\footnotesize\ttfamily,
+    breaklines=true,
+    xleftmargin=0.6cm,
+    showstringspaces=false,
+    frame=none,
+    numbers=left,
+    language=Java,
+    inputencoding=utf8,
+    extendedchars=true,
+    literate={≤}{{$\leq$}}1
+}
+
+\newcommand{\Tp}[1]{\mathrm{Tp}(#1)}
+\newcommand{\Ln}[1]{\mathrm{Ln}(#1)}
+\newcommand{\St}[1]{\mathrm{St}(#1)}
+\newcommand{\Mt}[1]{\mathrm{Mt}(#1)}
+\newcommand{\Rs}[1]{\mathrm{Rs}(#1)}
+\newcommand{\Rd}[1]{\mathrm{Rd}(#1)}
+
+\newcommand{\predrow}[3]{
+    \pbox[t]{20cm}{\texttt{#1}} & \pbox[t]{20cm}{\texttt{#2}\\ \raisebox{-0.1cm}{\pbox[t]{20cm}{#3}} \vspace{0.33cm}}\\ 
+}
+
+\begin{document}
+\pagenumbering{gobble}
+\title{Laboration 1\\ Beviskontroll med Prolog\\ \vspace{0.2cm} \small Kungliga Tekniska Högskolan\\ Logik för dataloger\\ DD1350, HT2015}
+\author{Mikael Forsberg <miforsb@kth.se>, Robin Gunning <rgunning@kth.se>}
+\maketitle
+
+\newpage
+\tableofcontents
+
+\newpage
+\pagenumbering{arabic}
+\section{Inledning}
+Denna laboration gick ut på att implementera ett program för automatisk
+kontroll av satslogiska bevis med naturlig deduktion i programspråket
+Prolog.
+
+\section{Metod}
+I detta avsnitt presenteras den algoritm som utformades för att
+utföra beviskontroller, och som sedan implementerades i Prolog.
+
+\subsection{Algoritm - informell beskrivning}
+Vår algoritm arbetar sig igenom beviset uppifrån och ned. Varje
+rad innehåller en regelmotivation. Algoritmen validerar för varje
+rad att den hänvisade regeln tillämpats korrekt på de rader som
+eventuellt hänvisats till. Boxar hanteras med rekursion, genom att 
+mer eller mindre se på innehållet som ett eget bevis, som dock kan
+hänvisa till gällande formler utanför boxen (sådana formler måste
+finnas ovanför boxen).
+
+\subsection{Algoritm - formell beskrivning}
+\textbf{Indata}: en lista med premisser $P$, en slutsats $S$ och ett
+bevis $B$ där $B$ utgörs av en lista där varje element $E_i, i = 0,1,2,...,n$ antingen
+är en trippel på formen (\emph{radnummer}, \emph{påstående},
+\emph{motivering}) eller en lista innehållande fler element (en box).
+\bigskip
+
+\noindent
+\texttt{<Triple> ::= tuple(lineno, statement, motivation)}
+
+\noindent
+\texttt{<P> ::= [] | cons(statement, <P>)}
+
+\noindent
+\texttt{<S> ::= statement}
+
+\noindent
+\texttt{<B> ::= cons(<Triple>, <B>) | cons(<B>, <B>) | cons(<Triple>, [])}
+
+\bigskip
+\noindent
+I grammatiken ovan skall \texttt{cons} tolkas som att vara definierad så
+att det går att lägga en lista inuti en annan lista, dvs. \texttt{cons(<List>, <List>)}.
+
+% backus naur tar vi sen
+% https://en.wikipedia.org/wiki/Backus%E2%80%93Naur_Form
+
+\bigskip
+\noindent
+\textbf{Definitioner}:
+\begin{itemize}
+\item $\Tp{n}$ : den trippel $X \in B$ för vilken $\Ln{X} = n$
+\item $\Ln{X}$ : radnumret i en trippel $X$
+\item $\St{X}$ : påståendet i en trippel $X$
+\item $\St{n}$ : påståendet $\St{\Tp{n}}$
+\item $\Mt{X}$ : motiveringen i en trippel $X$
+\item $\Rs{X}$ : de radnummer på samma boxnivå som hänvisas till i $\Mt{X}$
+\item $\Rd{X}$ : de radnummer på djupare boxnivå som hänvisas till i $\Mt{X}$
+\end{itemize}
+
+\bigskip
+\noindent
+För samtliga definitioner ovan gäller att beviset $B$ finns tillgängligt implicit.
+Symbolen $n$ skall tolkas som ett heltal. Den överlagrade funktionen $\St{...}$ skall tolkas verka på tripplar för argument
+med stor bokstav, och heltal för argument med liten bokstav.
+
+\bigskip
+\noindent
+\textbf{Att validera ett bevis $B$} givet en lista med premisser $P$ samt en slutsats $S$:
+\begin{itemize}
+\item Markera samtliga radnummer som stängda
+\item Markera samtliga radnummer i tripplar på första nivån i $B$ som öppna.
+\item Validera det första elementet $E_0 \in B$
+\item Kontrollera att det sista elementet $E_n \in B$ är en trippel och att $\mathrm{St}(E_n) = S$.
+\end{itemize}
+
+\bigskip
+\noindent
+\textbf{Att validera ett element $X$} givet ett bevis $B$ samt en lista med premisser $P$:
+\begin{itemize}
+\item[] \textbf{OM} $X$ är en trippel
+    \begin{itemize}
+    \item[] \textbf{OM} $\Ln{X}$ är stängt
+    \item[] $\qquad$ misslyckas
+    \item[] \textbf{OM} något radnummer $\in \Rs{X}$ är stängt
+    \item[] $\qquad$ misslyckas
+    \item[] \textbf{OM} något radnummer $\in \Rs{X}$ är större eller lika med $\Ln{X}$
+    \item[] $\qquad$ misslyckas
+    \item[] \textbf{OM} något radnummer $\in \Rd{X}$ är öppet
+    \item[] $\qquad$ misslyckas
+    \item[] \textbf{VÄLJ} $\Mt{X}$ ur:
+        \begin{itemize}
+        \item[] premiss:
+            \begin{itemize}
+            \item[] \textbf{OM} $\St{X} \notin P$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] copy(k):
+            \begin{itemize}
+            \item[] \textbf{OM} $\St{X} \neq \St{k}$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] negationseliminering(k,m):
+            \begin{itemize}
+            \item[] \textbf{OM} $\St{k} \neq \lnot \St{m}$ \textbf{ELLER} $\St{X} \neq \bot$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] falsumeliminering(k):
+            \begin{itemize}
+            \item[] \textbf{OM} $\St{k} \neq \bot$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] icke-ickeintroduktion(k):
+            \begin{itemize}
+            \item[] \textbf{OM} $\St{X} \neq \lnot \lnot \St{k}$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] LEM:
+            \begin{itemize}
+            \item[] \textbf{OM INTE} $\St{X}$ är på formen $p \lor \lnot p$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] MT(k,m):
+            \begin{itemize}
+            \item[] \textbf{OM} $\St{k} \neq (p \rightarrow q)$ \textbf{ELLER} $\St{m} \neq \lnot q$ \textbf{ELLER} $\St{X} \neq \lnot q$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] implikationseliminering(k,m):
+            \begin{itemize}
+            \item[] \textbf{OM} $\St{m} \neq (\St{k} \rightarrow \St{X})$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] och-eliminering-1(k):
+            \begin{itemize}
+            \item[] \textbf{OM INTE} $\St{k}$ är på formen $\St{X} \land q$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] och-eliminering-2(k):
+            \begin{itemize}
+            \item[] \textbf{OM INTE} $\St{k}$ är på formen $p \land \St{X}$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] och-introduktion(k,m):
+            \begin{itemize}
+            \item[] \textbf{OM} $\St{X} \neq \St{k} \land \St{m}$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] icke-icke-eliminering(k):
+            \begin{itemize}
+            \item[] \textbf{OM} $\St{k} \neq \lnot \lnot \St{X}$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] antagande:
+            \begin{itemize}
+            \item[] \textbf{OM INTE} $\Ln{X}$ öppnar en box med djup $>0$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+\newpage
+        \item[] eller-eliminering(k,m,p,q,r):
+            \begin{itemize}
+            \item[] \textbf{OM INTE} raderna $m$ och $p$ öppnar respektive stänger en och samma box 
+            \item[] $\qquad$ misslyckas
+            \item[] \textbf{OM INTE} raderna $q$ och $r$ öppnar respektive stänger en och samma box 
+            \item[] $\qquad$ misslyckas
+            \item[] \textbf{OM} $\St{k} \neq (\St{m} \lor \St{q})$
+            \item[] $\qquad$ misslyckas
+            \item[] \textbf{OM} $\St{p} \neq \St{r}$ \textbf{ELLER} $\St{X} \neq \St{p}$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] pbc(k,m):
+            \begin{itemize}
+            \item[] \textbf{OM INTE} raderna $k$ och $m$ öppnar respektive stänger senast stängda\footnote{Den box som, sett från det radnummer man står på, senast stängdes.} box
+            \item[] $\qquad$ misslyckas
+            \item[] \textbf{OM} $\St{k} \neq \lnot \St{X}$ \textbf{ELLER} $\St{m} \neq \bot$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] implikationsintroduktion(k,m):
+            \begin{itemize}
+            \item[] \textbf{OM INTE} raderna $k$ och $m$ öppnar respektive stänger senast stängda\footnote{Se fotnot 1} box
+            \item[] $\qquad$ misslyckas
+            \item[] \textbf{OM} $\St{X} \neq (\St{k} \rightarrow \St{m}$)
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \item[] negationsintroduktion(k,m):
+            \begin{itemize}
+            \item[] \textbf{OM INTE} raderna $k$ och $m$ öppnar respektive stänger senast stängda\footnote{Se fotnot 1} box
+            \item[] $\qquad$ misslyckas
+            \item[] \textbf{OM} $\St{m} \neq \bot$ \textbf{ELLER} $\St{X} \neq \lnot \St{k}$
+            \item[] $\qquad$ misslyckas
+            \end{itemize}
+        \end{itemize}
+    \end{itemize}
+\item[] \textbf{ANNARS} // $X$ är inte en trippel
+    \begin{itemize}
+    \item[] \textbf{OM INTE} $X$ är en lista där element 0 är en trippel motiverad med ''antagande''
+    \item[] $\qquad$ misslyckas
+    \item[] Markera samtliga rader på djup 0 i $X$ som öppna
+    \item[] Validera $X$
+    \item[] Markera samtliga rader på djup 0 i $X$ som stängda
+    \end{itemize}
+\item[] \textbf{OM} $\Tp{\Ln{X} + 1}$ inte är tomma listan
+    \begin{itemize}
+    \item[] Validera $\Tp{\Ln{X} + 1}$
+    \end{itemize}
+\item[] \textbf{ANNARS}
+    \begin{itemize}
+    \item[] färdigt, korrekt!
+    \end{itemize}
+ % ANNARS 
+   % Validera $E_{n+1}$
+\end{itemize}
+
+% element_list ::= [] | [ element | element_list ]
+% element ::= (linenr, statement, motivation) | element_list
+% proof ::= element_list
+
+% att validera B:
+
+% för varje påstående i P, notera att P är sant
+
+% för varje rad i B (varje trippel oavsett djup):
+    % om djupet är > 1, markera raden som stängd
+
+% för varje rad i B:
+    % om raden är öppen:
+        % om motiveringen är premiss
+            % kontrollera att påståendet är noterat som sant
+        % om motiveringen är en regel tillhörande naturlig deduktion
+            % kontrollera att eventuella boxhänvisningar innehåller par av start- och slutradnr
+             % som tillhör samma box
+            % kontrollera att samtliga radnr i samtliga hänvisade boxar är stängda
+            % kontrollera att regeln tillämpats korrekt på eventuella hänvisade radnr samt
+             % eventuella hänvisade boxar
+    % annars
+        % validera beviset B* som består av radens elementlista med premisserna P fast utan slutsats?
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% givet en lista premisser P, en slutsats C samt ett bevis B
+% där ett bevis utgörs av en lista element E_0, E_1, ... E_n, där varje element
+% antingen är en trippel (radnummer, påstående, motivering) eller
+% en lista på ytterligare element (en box)
+
+% att validera ett bevis B
+
+    % utgå från att samtliga radnummer N_n tillhörande E_n \in B initialt är ''stängda''
+    % markera samtliga radnummer på lägsta nivån i B som öppna
+    % validera det första elementet E_0 \in B
+
+% att validera ett element E_n
+    % om E_n inte är en trippel
+        % om det första elementet E_m \in E_n inte är en trippel eller inte börjar med motiveringen ''antagande''
+            % avbryt och misslyckas
+        % annars
+            % validera första elementet E_m \in E_n
+    % annars
+        % välj fall ur motiveringen Mv(E_n)
+        % premiss:
+            % om inte St(E_n) \in P
+                % avbryt och misslyckas
+        
+    
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Algoritmens boxhantering}
+\noindent
+Som ses i algoritmens formella beskrivning ovan hanteras boxar genom att programmet
+kan märka vissa radnummer som öppna eller stängda. När en box
+påträffas i ett bevisträd (eller ett boxträd) markeras raderna
+på den första nivån i trädet som öppna och valideras enligt
+precis samma algoritm som elementen i huvudbeviset. När boxen
+stängts stängs även raderna. Vid kontroll av bevisregler
+görs olika kontroller för hänvisningar till boxar, vilket
+bland annat omfattar att kontrollera så samtliga rader i
+hänvisade boxar är stängda.
+\vfill
+
+\subsection{Predikatdokumentation}
+\begin{tabular}{r l}
+\textbf{Predikat} & \textbf{Beskrivning}\\
+%natrules.pl
+% \raisebox{1cm}{\texttt{andel1/2}} & \pbox{20cm}{\texttt{andel1(?X, ?Y)}\\ \\ Sant om X = and(Y, \_)\\ }\\
+\predrow{andel1/2}{andel1(?X, ?Y)}{Verifierar den satslogiska bevisregeln $\land e_1$.\\ Sant om X = and(Y, \_).}
+% andel2/2 & andel2(?X, ?Y), sant om X = and(\_, Y) \\
+\predrow{andel2/2}{andel2(?X, ?Y)}{Verifierar den satslogiska bevisregeln $\land e_2$.\\ Sant om X = and(\_, Y).}
+% andint/3 & andint(?X, ?Y, ?Z), sant om Z = and(X, Y) \\
+\predrow{andint/3}{andint(?X, ?Y, ?Z)}{Verifierar den satslogiska bevisregeln $\land i$.\\ Sant om Z = and(X, Y).}
+% contel/2 & contel(?X, ?Y), sant om X = cont \\
+\predrow{contel/2}{contel(?X, ?Y)}{Verifierar den satslogiska bevisregeln $\bot e$.\\ Sant om X = $\bot$.}
+% copy/2 & copy(?X, ?Y), sant om X = Y \\
+\predrow{copy/2}{copy(?X, ?Y)}{Verifierar den satslogiska bevisregeln \texttt{copy}.\\ Sant om X = Y.}
+% impel/3 & impel(?X, ?Y, ?Z), sant om Y = imp(X, Z) \\
+\predrow{impel/3}{impel(?X, ?Y, ?Z)}{Verifierar den satslogiska bevisregeln $\rightarrow e$.\\ Sant om Y = imp(X, Z).}
+% impint/3 & impint(?X, ?Y, ?Z), sant om Z = imp(X, Y) \\
+\predrow{impint/3}{impint(?X, ?Y, ?Z)}{Verifierar den satslogiska bevisregeln $\rightarrow i$.\\ Sant om Z = imp(X, Y).}
+% lem/1 & lem(?X), sant om X = or(Y, neg(Y)) \\
+\predrow{lem/1}{lem(?X)}{Verifierar den satslogiska bevisregeln LEM.\\ Sant om X = or(Y, $\lnot$ Y) för något Y.}
+% mt/3 & mt(?X, ?Y, ?Z), sant om  \\
+\predrow{mt/3}{mt(?X, ?Y, ?Z)}{Verifierar den satslogiska bevisregeln MT (modus tollens).\\ Sant om X = imp(A, B), Y = neg(A) och Z = neg(B).}
+% negel/3 & ... \\
+\predrow{negel/3}{negel(?X, ?Y, ?Z)}{Verifierar den satslogiska bevisregeln $\lnot e$.\\ Sant om Y = neg(X) och Z = $\bot$.}
+% negint/3 & ... \\
+\predrow{negint/3}{negint(?X, ?Y, ?Z)}{Verifierar den satslogiska bevisregeln $\lnot i$.\\ Sant om Z = neg(X) och Y = $\bot$.}
+% negnegel/2 & ... \\
+\predrow{negnegel/2}{negnegel(?X, ?Y)}{Verifierar den satslogiska bevisregeln $\lnot \lnot e$.\\ Sant om X = neg(neg(Y)).}
+% negnegint/2 & ... \\
+\predrow{negnegint/2}{negnegint(?X, ?Y)}{Verifierar den satslogiska bevisregeln $\lnot \lnot i$.\\ Sant om Y = neg(neg(X)).}
+% orel/6 & ... \\
+\predrow{orel/6}{orel(?X, ?Y, ?Z, ?P, ?Q, ?R)}{Verifierar den satslogiska bevisregeln $\lor e$.\\ Sant om X = or(Y, P) och Z = Q = R.}
+\end{tabular}
+\newpage
+
+\begin{tabular}{r l}
+\textbf{Predikat} & \textbf{Beskrivning}\\
+% pbc/3 & ... \\
+\predrow{pbc/3}{pbc(?X, ?Y, ?Z)}{Verifierar den satslogiska bevisregeln PBC.\\ Sant om X = neg(Z) och Y = $\bot$.}
+
+%proofs.pl
+% all\_open/2 & ... \\
+\predrow{open/1}{open(?X)}{Sant om open(X) gäller. Används dynamiskt med \texttt{assert}/\texttt{retract}.}
+\predrow{all\_open/2}{all\_open(?X, ?Y)}{Sant om open(X) och open(Y) gäller.}
+% all\_open/3 & ... \\
+\predrow{all\_open/3}{all\_open(?X, ?Y, ?Z)}{Sant om open(X), open(Y) och open(Z) gäller.}
+% none\_open/2 & ... \\
+\predrow{none\_open/2}{none\_open(?X, ?Y)}{Sant om varken open(X) eller open(Y) gäller.}
+% none\_open/3 & ... \\
+\predrow{none\_open/3}{none\_open(?X, ?Y, ?Z)}{Sant om varken open(X), open(Y) eller open(Z) gäller.}
+% box\_mark\_open/1 & ... \\
+\predrow{box\_mark\_open/1}{box\_mark\_open(+Box)}{Markerar samtliga radnummer i alla tripplar på lägsta nivån i\\ beviset/boxen Box som öppna (\texttt{open}) genom anrop till \texttt{assert}.\\ Alltid sant.}
+% box\_mark\_closed/1 & ... \\
+\predrow{box\_mark\_closed/1}{box\_mark\_closed(+Box)}{Markerar samtliga radnummer i alla tripplar på lägsta nivån i\\ beviset/boxen Box som stängda genom anrop till \texttt{retract}.\\ Alltid sant.}
+% maxbox/2 & ... \\
+\predrow{maxbox/2}{maxbox(+List, -Result)}{Plockar fram det högsta ''box-id'' i en lista beräknad av\\ \texttt{lines\_collect\_info/4}.\\ Sant då \texttt{Result} är detta högsta ''box-id''.}
+% lines\_collect\_info/2 & ... \\
+\predrow{lines\_collect\_info/2}{lines\_collect\_info(+Proof, -Result)}{Går igenom ett bevisträd och beräknar utifrån samtliga tripplar\\ en flat lista på formen \texttt{[[radnummer, box-id, radnummer-i-box], ...]}.\\ Sant då \texttt{Result} är denna lista.}
+% lines\_collect\_info/5 & ... \\
+\predrow{lines\_collect\_info/5}{-}{Hjälppredikat för \texttt{lines\_collect\_info/2}.}
+% line\_in\_box/3 & ... \\
+\predrow{line\_in\_box/3}{line\_in\_box(+Proof, +LineNo, ?Box)}{Söker reda på vilken box som radnummret \texttt{LineNo} tillhör. Sant då\\ \texttt{Box} är detta ''box-id''.}
+% linenumbers/2 & ... \\
+\predrow{linenumbers/2}{linenumbers(+Proof, -List)}{Skapar en lista på samtliga radnummer som förekommer i \texttt{Proof}.\\ Sant då \texttt{List} är denna lista.}
+% increasing/1 & ... \\
+\predrow{increasing/1}{increasing(+List)}{Sant om \texttt{List} innehåller tal ordnade i icke-strikt stigande ordning.}
+% lines\_find\_info/3 & ... \\
+\predrow{lines\_find\_info/3}{-}{Hjälppredikat för \texttt{line\_get\_info/3}.}
+% line\_get\_info/3 & ... \\
+\predrow{line\_get\_info/3}{line\_get\_info(+Proof, +LineNo, -Result)}{Hämtar trippeln för ett givet radnummer ur ett bevisträd. Sant då\\ \texttt{Result} är denna trippel.}
+\end{tabular}
+\newpage
+
+\begin{tabular}{r l}
+\textbf{Predikat} & \textbf{Beskrivning}\\
+% box\_max\_line/3 & ... \\
+\predrow{box\_max\_line/3}{box\_max\_line(+Proof, +BoxId, -Result)}{Finner det högsta radnummer (globalt i beviset) som tillhör\\ den box som har det givna ''box-id'' \texttt{BoxId}. Detta ''box-id''\\ beräknas på samma sätt som hos \texttt{lines\_collect\_info/2}.\\ Sant när \texttt{Result} är detta radnummer.}
+% box\_max\_line/4 & ... \\
+\predrow{box\_max\_line/4}{-}{Hjälppredikat för \texttt{box\_max\_line/3}.}
+% box\_min\_line/3 & ... \\
+\predrow{box\_min\_line/3}{box\_min\_line(+Proof, +BoxId, -Result)}{Finner det lägsta radnummer (globalt i beviset) som tillhör\\ den box som har det givna ''box-id'' \texttt{BoxId}. Detta ''box-id''\\ beräknas på samma sätt som hos \texttt{lines\_collect\_info/2}.\\ Sant när \texttt{Result} är detta radnummer.}
+% box\_min\_line/4 & ... \\
+\predrow{box\_min\_line/4}{-}{Hjälppredikat för \texttt{box\_min\_line/3}.}
+% line\_opens\_box/2 & ... \\
+\predrow{line\_opens\_box/2}{line\_opens\_box(+Proof, ?LineNo)}{Sant om någon box öppnas på rad \texttt{LineNo} i beviset.}
+% line\_closes\_box/2 & ... \\
+\predrow{line\_closes\_box/2}{line\_closes\_box(+Proof, ?LineNo)}{Sant om någon box stängs på rad \texttt{LineNo} i beviset.}
+% lines\_delimit\_box/3 & ... \\
+\predrow{lines\_delimit\_box/3}{lines\_delimit\_box(+Proof, ?Line1, ?Line2)}{Sant om någon box öppnas på rad \texttt{Line1} och stängs på rad\\ \texttt{Line2} i beviset. \texttt{Line1} och \texttt{Line2} måste tillhöra samma box\\ och finnas på samma djup.}
+% first\_opened\_box\_in\_box/3 & ... \\
+\predrow{first\_opened\_box\_in\_box/3}{first\_opened\_box\_in\_box(+Proof, +OwnBox, ?BoxNo)}{Finner ''box-id'' på den första box som öppnas i den box vars\\ ''box-id'' är \texttt{OwnBox}. Sant när \texttt{BoxNo} är detta ''box-id''.}
+% most\_recently\_closed\_box/3 & ... \\
+\predrow{most\_recently\_closed\_box/3}{most\_recently\_closed\_box(+Proof, +LineNo, ?BoxNo)}{Finner ''box-id'' på den box som senast stängdes sett från ett\\ givet radnummer \texttt{LineNo}. Sant när \texttt{BoxNo} är detta ''box-id''.}
+% proof\_nth\_line/3 & ... \\
+\predrow{proof\_nth\_line/3}{proof\_nth\_line(+Proof, +N, ?Line)}{Hämtar den trippel i \texttt{Proof} vars radnummer är \texttt{N}.\\ Sant när \texttt{Line} är denna trippel.}
+% proof\_nth\_statement/3 & ... \\
+\predrow{proof\_nth\_statement/3}{proof\_nth\_statement(+Proof, +N, ?Statement)}{Hämtar påståendet ur trippeln vars radnummer är \texttt{N}.\\ Sant när \texttt{Statement} är detta påstående.}
+
+% labb1.pl
+% verify/1 & ... \\
+\predrow{verify/1}{verify(+Filename)}{Läser in premisser, slutsats och bevis från filen \texttt{Filename}.\\ Om beviset är korrekt skrivs ''yes'' ut på standard out,\\ annars skrivs ''no'' ut på standard out. Predikatet i sig är\\ alltid sant.}
+% valid\_proof/3 & ... \\
+\predrow{validate\_proof/3}{validate\_proof(+Premises, +Conclusion, +Proof)}{Validerar ett bevis enligt tidigare beskrivna algoritm.\\ Sant om beviset är korrekt.}
+% validate/3 & ... \\
+\predrow{validate/3}{validate(+Proof, +Premises, +Element)}{Validerar ett element enligt tidigare beskrivna algoritm.\\ Sant om algoritmen inte lyckas hitta någon anledning\\ att misslyckas.}
+% main/1 & ... \\
+\end{tabular}
+
+\newpage
+\section{Resultat}
+\noindent
+Programmet klarade samtliga testfall (valid01-valid21, invalid01-invalid28)
+som fanns tillgängliga via kurshemsidan, samt våra egna två testfall (se bilagor).
+
+\section{Bilagor}
+\subsection{labb1.pl}
+\lstinputlisting[tabsize=4]{labb1.pl}
+
+\newpage
+\subsection{proofs.pl}
+\lstinputlisting[tabsize=4]{proofs.pl}
+
+\newpage
+\subsection{natrules.pl}
+\lstinputlisting[tabsize=4]{natrules.pl}
+
+\newpage
+\subsection{ourvalid.txt}
+\lstinputlisting[tabsize=4]{tests/ourvalid.txt}
+
+\bigskip
+\subsection{ourinvalid.txt}
+\lstinputlisting[tabsize=4]{tests/ourinvalid.txt}
+
+\end{document}
+
+% \subsection{Algoritm}
+% \textbf{Indata}: en lista med premisser $P$, en slutsats $S$ och ett bevis $B$ där $B$ utgörs av en lista där varje element $E_n$ antingen är en trippel på formen (radnummer, påstående, motivering) eller en lista innehållande fler element (en box).
+
+% backus naur tar vi sen
+% https://en.wikipedia.org/wiki/Backus%E2%80%93Naur_Form
+
+% Definitioner:
+% Ln(E) : radnumret i en trippel
+% St(E) : påståendet i en trippel
+% Mt(E) : motiveringen i en trippel
+% Rr(E) : de radnummer på samma boxnivå som hänvisas till i motivering
+% Rb(E) : de radnummer på djupare boxnivå som hänvisas till i motivering
+
+% Att validera ett bevis $B$ givet en lista med premisser $P$ samt en slutsats $S$:
+  % Markera samtliga bevisrader på djup 0 som öppna.
+  % Validera det första elementet $E_0 \in B$
+  % Kontrollera att det sista elementet $E_n \in B$ är en trippel och
+  % att dess påstående är lika med $S$.
+
+% Att validera ett element $E_n$ givet ett bevis $B$ samt en lista med premisser $P$:
+  % OM $E_n$ är en trippel
+    % OM Ln(E_n) är stängd
+      % misslyckas
+    % OM någon rad \in Rr(E_n) är stängd
+      % misslyckas
+    % OM någon rad \in Rr(E_n) är större eller lika med Ln(E_n)
+      % misslyckas
+    % OM någon rad \in Rb(E_n) är öppen
+      % misslyckas
+    % VÄLJ Mt(E_n) ur
+      % “premiss”:
+        % OM St(E_n) \notin P
+          % misslyckas
+      % “copy(k)”:
+        % OM St(E_n) inte är lika med St(E_k)
+          % misslyckas
+      % “negationseliminering(k,m)”:
+        % OM St(E_k) inte är lika med icke-St(E_m) ELLER St(E_n) != falsum
+          % misslyckas
+    % “falsumeliminering(k)”:
+       % OM St(E_k) != falsum
+         % misslyckas
+     % “ickeickeintroduktion(k)”:
+        % OM St(E_n) inte är lika med icke-icke-St(E_k)
+          % misslyckas
+     % “LEM”:
+        % OM St(E_n) inte är ett påstående på formen “X eller icke-X”
+          % misslyckas
+     % “MT(k,m)”:
+        % OM St(E_k) inte anger att icke-St(E_n) implicerar icke-St(E_m)
+          % misslyckas
+     % “implikationseliminering(k,m)”
+        % OM St(E_m) inte anger att St(E_k) implicerar St(E_n)
+          % misslyckas
+     % “ocheleminering1(k)”:
+        % OM St(E_k) inte är av formen “St(E_n) ^ X”
+          % misslyckas
+     % “ocheleminering2(k)”:
+        % OM St(E_k) inte är av formen “X ^ St(E_n)”
+          % misslyckas
+     % “ochintroduktion(k,m)”:
+        % OM St(E_n) inte är lika med “St(E_k) ^ St(E_m)”
+          % misslyckas
+
+
+     % “ickeickeeliminering(k)”:
+       % OM St(E_k) inte är icke-icke-St(E_n)
+     % misslyckas
+% “antagande”:
+   % OM Ln(E_n) inte öppnar en box
+     % misslyckas
+% “ellereliminering(k,m,p,q,r)”:
+   % OM raderna E_m och E_p inte öppnar respektive stänger en box
+     % misslyckas
+   % OM raderna E_q och E_r inte öppnar respektive stänger en box
+     % misslyckas
+   % OM St(E_k) inte är lika med “St(E_m) v St(E_q)”
+     % misslyckas
+   % OM St(E_p) inte är lika med St(E_r) ELLER St(E_n) inte är lika med St(E_p)
+     % misslyckas
+% “pbc(k,m)”:
+   % OM E_k och E_m inte står som öppnande respektive stängande rad för senast stängda box:
+     % misslyckas
+   % OM St(E_k) inte är lika med icke-St(E_n) ELLER St(E_m) inte är lika med falsum
+     % misslyckas
+     % “implikationsintroduktion(k,m)”:
+        % OM E_k och E_m inte står som öppnande respektive stängande rad för senast stängda box
+          % misslyckas
+        % OM St(E_n) inte är lika med “St(E_k) -> St(E_m)”
+          % misslyckas
+     % “negationsintroduktion(k,m)”:
+        % OM E_k och E_m inte står som öppnande respektive stängande rad för senast stängda box
+          % misslyckas
+        % OM St(E_m) inte är lika med falsum ELLER St(E_n) inte är lika med icke-St(E_k)
+          % misslyckas
+     % ANNARS:
+        % OM E_n inte är en lista vars första element är en trippel med
+% motiveringen “antagande”
+          % misslyckas
+        % Markera samtliga rader på djup 0 i E_n som öppna
+        % Validera [E_n]_0
+        % Markera samtliga rader på djup 0 i E_n som stängda
+
+
+ % ANNARS 
+   % Validera $E_{n+1}$
